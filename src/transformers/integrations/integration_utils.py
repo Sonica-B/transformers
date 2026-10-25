@@ -1490,18 +1490,19 @@ class DagsHubCallback(MLflowCallback):
         self.log_artifacts = os.getenv("HF_DAGSHUB_LOG_ARTIFACTS", "FALSE").upper() in ENV_VARS_TRUE_VALUES
         self.name = os.getenv("HF_DAGSHUB_MODEL_NAME") or "main"
         self.remote = os.getenv("MLFLOW_TRACKING_URI")
-        self.repo = self.Repo(
-            owner=self.remote.split(os.sep)[-2],
-            name=self.remote.split(os.sep)[-1].split(".")[0],
-            branch=os.getenv("BRANCH") or "main",
-        )
-        self.path = Path("artifacts")
-
         if self.remote is None:
             raise RuntimeError(
                 "DagsHubCallback requires the `MLFLOW_TRACKING_URI` environment variable to be set. Did you run"
                 " `dagshub.init()`?"
             )
+
+        # `MLFLOW_TRACKING_URI` is a URL (`https://dagshub.com/<owner>/<repo>.mlflow`), so split on "/", not `os.sep`
+        self.repo = self.Repo(
+            owner=self.remote.split("/")[-2],
+            name=self.remote.split("/")[-1].split(".")[0],
+            branch=os.getenv("BRANCH") or "main",
+        )
+        self.path = Path("artifacts")
 
         super().setup(*args, **kwargs)
 

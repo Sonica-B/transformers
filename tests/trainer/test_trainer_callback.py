@@ -42,7 +42,12 @@ from transformers import (
     TrainingArguments,
     is_torch_available,
 )
-from transformers.integrations.integration_utils import KubeflowCallback, SwanLabCallback, TrackioCallback
+from transformers.integrations.integration_utils import (
+    DagsHubCallback,
+    KubeflowCallback,
+    SwanLabCallback,
+    TrackioCallback,
+)
 from transformers.testing_utils import require_ipython, require_torch
 from transformers.trainer_callback import CallbackHandler, ExportableState, TrainerControl
 
@@ -806,6 +811,38 @@ class SwanLabCallbackTest(unittest.TestCase):
         init_kwargs = fake_swanlab.init.call_args.kwargs
         self.assertEqual(init_kwargs["id"], "run-123")
         self.assertEqual(init_kwargs["resume"], "must")
+
+
+class DagsHubCallbackTest(unittest.TestCase):
+    def _create_callback(self):
+        fake_mlflow = Mock()
+        fake_mlflow.utils.validation.MAX_PARAM_VAL_LENGTH = 250
+        fake_mlflow.utils.validation.MAX_PARAMS_TAGS_PER_BATCH = 100
+        fake_dagshub_upload = Mock()
+        fake_modules = {"mlflow": fake_mlflow, "dagshub": Mock(), "dagshub.upload": fake_dagshub_upload}
+        with patch("transformers.integrations.integration_utils.is_dagshub_available", return_value=True):
+            with patch("transformers.integrations.integration_utils.is_mlflow_available", return_value=True):
+                with patch.dict("sys.modules", fake_modules):
+                    callback = DagsHubCallback()
+        return callback, fake_dagshub_upload.Repo
+
+    def test_setup_parses_tracking_uri_independently_of_os_sep(self):
+        callback, fake_repo = self._create_callback()
+        tracking_uri = {"MLFLOW_TRACKING_URI": "https://dagshub.com/some-owner/some-repo.mlflow"}
+
+        # Simulate Windows, where `os.sep` is a backslash but the tracking URI still uses forward slashes
+        with patch.dict(os.environ, tracking_uri, clear=True), patch("os.sep", "\\"):
+            with patch("transformers.integrations.integration_utils.MLflowCallback.setup"):
+                callback.setup()
+
+        fake_repo.assert_called_once_with(owner="some-owner", name="some-repo", branch="main")
+
+    def test_setup_without_tracking_uri_raises_runtime_error(self):
+        callback, _ = self._create_callback()
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "MLFLOW_TRACKING_URI"):
+                callback.setup()
 
 
 class TrackioCallbackTest(unittest.TestCase):
